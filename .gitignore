@@ -1,0 +1,9 @@
+*.pth
+
+*.tar
+
+*.pth
+
+__pycache__/
+
+gaze_app/
