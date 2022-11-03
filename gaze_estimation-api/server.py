@@ -1,5 +1,5 @@
 from __future__ import print_function
-import os
+import sys, os
 import argparse
 import numpy as np
 import cv2
@@ -13,16 +13,22 @@ import torch.backends.cudnn as cudnn
 import torchvision
 
 from PIL import Image
-from utils import select_device, draw_gaze
 
+sys.path.append('./gaze_estimation')
+sys.path.append('./face_detector')
 
-from ...face_detector.retinaface.data import config
-from ...face_detector.retinaface.layers.functions.prior_box import PriorBox
-from ...face_detectorface_detector.retinaface.utils.nms.py_cpu_nms import py_cpu_nms
-from ...face_detector.retinaface.models.retinaface import RetinaFace
-from ...face_detector.retinaface.utils.box_utils import decode, decode_landm
+from L2CS.utils import select_device, draw_gaze
+from L2CS.model import L2CS
 
-from model import L2CS
+from retinaface.data import config
+from retinaface.layers.functions.prior_box import PriorBox
+from retinaface.utils.nms.py_cpu_nms import py_cpu_nms
+from retinaface.models.retinaface import RetinaFace
+from retinaface.utils.box_utils import decode, decode_landm
+
+import flask
+import io
+
 
 def parse_args():
     """Parse input arguments."""
@@ -33,7 +39,7 @@ def parse_args():
         default="0", type=str)
     parser.add_argument(
         '--snapshot',dest='snapshot', help='Path of model snapshot.', 
-        default='output/snapshots/L2CS-mpiigaze_1654834358/fold0/_epoch_50.pkl', type=str)
+        default='gaze_estimation/L2CS/output/snapshots/L2CS-mpiigaze_1654834358/fold0/_epoch_50.pkl', type=str)
     parser.add_argument(
         '--cam',dest='cam_id', help='Camera device id to use [0]',  
         default=0, type=int)
@@ -124,7 +130,7 @@ gaze_tracker.eval()
 softmax = nn.Softmax(dim=1)
 
 # face detection
-trained_model = './retinaface/weights/mobilenet0.25_Final.pth'
+trained_model = './face_detector/retinaface/weights/mobilenet0.25_Final.pth'
 cpu = False
 confidence_threshold = 0.02
 top_k = 5000
@@ -145,6 +151,7 @@ idx_tensor = [idx for idx in range(28)]
 idx_tensor = torch.FloatTensor(idx_tensor).cuda(gpu)
 x=0
 
+app = flask.Flask(__name__)
 @app.route("/predict", methods=["POST"])
 def predict():
     data = {"success" : False}
@@ -298,4 +305,4 @@ def predict():
 
 if __name__ == '__main__':
     print("sever starting")
-    app.run()
+    app.run(port=5000)
