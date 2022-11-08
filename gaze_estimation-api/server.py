@@ -5,14 +5,13 @@ import numpy as np
 import cv2
 import time
 
+from PIL import Image
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
 from torchvision import transforms
 import torch.backends.cudnn as cudnn
 import torchvision
-
-from PIL import Image
 
 sys.path.append('./gaze_estimation')
 sys.path.append('./face_detector')
@@ -27,8 +26,6 @@ from retinaface.models.retinaface import RetinaFace
 from retinaface.utils.box_utils import decode, decode_landm
 
 import flask
-import io
-
 
 def parse_args():
     """Parse input arguments."""
@@ -158,15 +155,16 @@ def predict():
     data["predictions"] = []
     if flask.request.method == "POST":
         if flask.request.files.get("image"):
-            image = flask.request.files["image"].read()
-            image = Image.open(io.BytesIO(image))
-            frame = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            response = flask.request.files["image"].read()
+            encoded_response = np.frombuffer(response, dtype=np.uint8)
+            image = cv2.imdecode(encoded_response, cv2.IMREAD_COLOR)
+            orin_img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
             with torch.no_grad():
                 while True:
                     start_fps = time.time()
-            
-                    img = np.float32(frame.copy())
+
+                    img = np.float32(orin_img.copy())
             
                     im_height, im_width, _ = img.shape
                     scale = torch.Tensor([img.shape[1], img.shape[0], img.shape[1], img.shape[0]])
@@ -251,7 +249,7 @@ def predict():
                             # bbox_height = y_max - y_min
             
                             # Crop image
-                            img = frame[y_min:y_max, x_min:x_max]
+                            img = orin_img[y_min:y_max, x_min:x_max]
                             img = cv2.resize(img, (224, 224))
                             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                             im_pil = Image.fromarray(img)
@@ -270,39 +268,47 @@ def predict():
                             pitch_predicted = torch.sum(pitch_predicted.data[0] * idx_tensor) * 3 - 42
                             yaw_predicted = torch.sum(yaw_predicted.data[0] * idx_tensor) * 3 - 42
 
-                            pitch_predicted = pitch_predicted.cpu().detach().numpy()
-                            yaw_predicted = yaw_predicted.cpu().detach().numpy()
+                            pitch_predicted = pitch_predicted.cpu().detach().numpy().item(0)
+                            yaw_predicted = yaw_predicted.cpu().detach().numpy().item(0)
 
-                            # pitch_predicted = pitch_predicted.cpu().detach().numpy()* np.pi/180.0
-                            # yaw_predicted = yaw_predicted.cpu().detach().numpy()* np.pi/180.0
+                            pitch_predicted_pi = pitch_predicted * np.pi/180.0
+                            yaw_predicted_pi = yaw_predicted * np.pi/180.0
             
-                            draw_gaze(x_min,y_min,bbox_width, bbox_height,frame,(pitch_predicted,yaw_predicted),color=(0,0,255))
-                            #cv2.putText(frame, '{:.3f}, {:.3f}'.format(yaw_predicted, pitch_predicted), (x_min, y_min), cv2.FONT_HERSHEY_COMPLEX_SMALL,1,(0, 255, 0),1,cv2.LINE_AA)
-                            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0,255,0), 1)
+                            draw_gaze(x_min,y_min,bbox_width, bbox_height,orin_img,(pitch_predicted_pi,yaw_predicted_pi),color=(0,0,255))
+                            cv2.putText(orin_img, '{:.3f}, {:.3f}'.format(yaw_predicted, pitch_predicted), (x_min, y_min), cv2.FONT_HERSHEY_COMPLEX_SMALL,1,(0, 255, 0),1,cv2.LINE_AA)
+                            cv2.rectangle(orin_img, (x_min, y_min), (x_max, y_max), (0,255,0), 1)
             
                             # landms
-                            cv2.circle(frame, (landmarks[0], landmarks[1]), 1, (0, 0, 255), 4)
-                            cv2.circle(frame, (landmarks[2], landmarks[3]), 1, (0, 255, 255), 4)
-                            cv2.circle(frame, (landmarks[4], landmarks[5]), 1, (255, 0, 255), 4)
-                            cv2.circle(frame, (landmarks[6], landmarks[7]), 1, (0, 255, 0), 4)
-                            cv2.circle(frame, (landmarks[8], landmarks[9]), 1, (255, 0, 0), 4)
+                            cv2.circle(orin_img, (landmarks[0], landmarks[1]), 1, (0, 0, 255), 4)
+                            cv2.circle(orin_img, (landmarks[2], landmarks[3]), 1, (0, 255, 255), 4)
+                            cv2.circle(orin_img, (landmarks[4], landmarks[5]), 1, (255, 0, 255), 4)
+                            cv2.circle(orin_img, (landmarks[6], landmarks[7]), 1, (0, 255, 0), 4)
+                            cv2.circle(orin_img, (landmarks[8], landmarks[9]), 1, (255, 0, 0), 4)
 
                             # loop over the results and add them to the list of
                             # returned predictions
                             result = {"pitch": pitch_predicted, "yaw": yaw_predicted}
-                            data["predictions"].append(r)
+                            data["predictions"].append(result)
 
                             # indicate that the request was a success
                             data["success"] = True
 
-                    # myFPS = 1.0 / (time.time() - start_fps)
-                    # cv2.putText(frame, 'FPS: {:.1f}'.format(myFPS), (10, 20),cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 255, 0), 1, cv2.LINE_AA)
-            
-                    cv2.imwrite('./test.jpg', frame)
+                    myFPS = 1.0 / (time.time() - start_fps)
+                    cv2.putText(orin_img, 'FPS: {:.1f}'.format(myFPS), (10, 20), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 255, 0), 1, cv2.LINE_AA)
 
+                    orin_img = cv2.cvtColor(orin_img, cv2.COLOR_RGB2BGR)
+                    
+                    cv2.imwrite('./result/orin.png', image)
+                    cv2.imwrite('./result/test.png', orin_img)
+                    
+                    break
+    print(data)
 	# return the data dictionary as a JSON response
     return flask.jsonify(data)
 
 if __name__ == '__main__':
+    if not os.path.isdir('./result'):
+        os.mkdir('./result')
+    
     print("sever starting")
     app.run(port=5000)
